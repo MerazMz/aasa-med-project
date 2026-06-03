@@ -97,6 +97,34 @@ To preserve consistency, all inventory metrics are stored in their smallest dime
   - Subtotal: `5 * ₹450 = ₹2250`
 - **Verification Rule**: The frontend displays real-time calculations, but **no client-side math is trusted**. The server queries the database, converts quantities, checks stock bounds, and computes subtotals during atomic transaction checkout.
 
+### High-Precision & Minute Conversions
+
+For highly valuable chemicals where minute quantities (e.g. `0.11111111223 g` or `0.000000000001 g`) cost a significant amount of money, standard floating-point representation causes severe rounding losses. To prevent this, we handle precision as follows:
+1. **PostgreSQL Decimal(38, 16) Storage**: All numeric columns (`stockQuantity`, `basePrice`, `totalAmount`, `orderedQuantity`, `convertedQuantity`, `pricePerUnit`, and `subtotal`) are stored as `@db.Decimal(38, 16)` in the schema. This allocates 22 digits for whole numbers and guarantees exactly **16 decimal places of precision** stored natively in the database.
+2. **JavaScript Big Decimal Handling**: Prisma Client maps these columns to JavaScript's high-precision `Decimal` wrapper (from `decimal.js`). All internal API checks, stock validation boundaries, and subtotal multipliers are executed using these high-precision numbers to bypass IEEE 754 float rounding bugs.
+
+---
+
+## 🧪 How to Test High-Precision Conversions
+
+You can test this flow end-to-end to verify that extremely small fractions calculate rates and prices accurately without rounding down to zero:
+1. **Log in as Admin** (`admin@asamed.com` / `admin123`) or a **Seller** (`seller1@asamed.com` / `seller123`).
+2. **List a Valuable Chemical**:
+   - Product Name: `Platinum Catalyzed Compound X-1`
+   - SKU: `PT-CAT-X1`
+   - Listing Unit: `GRAM`
+   - Initial Stock: `10`
+   - Price (INR): `9000000000` (₹9,000,000,000 / g)
+3. **Log in as Buyer** (`buyer@asamed.com` / `buyer123`) or switch to the **Buyer Simulation** tab in the Admin panel.
+4. **Order a Minute Quantity**:
+   - Select `Platinum Catalyzed Compound X-1`.
+   - Set the input unit to `GRAM`.
+   - Input an extremely small decimal value: `0.11111111223`.
+5. **Verify Subtotals**:
+   - The UI and checkout calculations will display the exact subtotal: `0.11111111223 g * ₹9,000,000,000 = ₹1,000,000,010.07` INR.
+   - Click **Submit Quotation**.
+   - Check the **System Quotations Audit** (under the Admin dashboard `/admin` or Seller dashboard). You will see the exact requested quantity `0.11111111223 g`, its converted base value, and the precise subtotal preserved in the database down to the last decimal point.
+
 ---
 
 ## ⚙️ Setup & Installation

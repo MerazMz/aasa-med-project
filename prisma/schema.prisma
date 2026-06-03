@@ -56,8 +56,8 @@ model Product {
 
   baseUnit Unit
 
-  stockQuantity Decimal @db.Decimal(20, 8)
-  basePrice     Decimal @db.Decimal(20, 8)
+  stockQuantity Decimal @db.Decimal(38, 16)
+  basePrice     Decimal @db.Decimal(38, 16)
 
   sellerId String?
   seller   User?   @relation(fields: [sellerId], references: [id])
@@ -74,7 +74,7 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  totalAmount Decimal @db.Decimal(20, 8)
+  totalAmount Decimal @db.Decimal(38, 16)
 
   status OrderStatus @default(PENDING)
 
@@ -93,13 +93,13 @@ model OrderItem {
   productId String
   product   Product @relation(fields: [productId], references: [id])
 
-  orderedQuantity Decimal @db.Decimal(20, 8)
+  orderedQuantity Decimal @db.Decimal(38, 16)
 
   orderedUnit Unit
 
-  convertedQuantity Decimal @db.Decimal(20, 8)
+  convertedQuantity Decimal @db.Decimal(38, 16)
 
-  pricePerUnit Decimal @db.Decimal(20, 8)
+  pricePerUnit Decimal @db.Decimal(38, 16)
 
-  subtotal Decimal @db.Decimal(20, 8)
+  subtotal Decimal @db.Decimal(38, 16)
 }
