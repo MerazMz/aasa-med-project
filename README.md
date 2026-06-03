@@ -1,36 +1,168 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AsaMed - Inventory & Order Management System
 
-## Getting Started
+A premium, modern Inventory and Order Management System designed for chemical products, built using Next.js, Neon-hosted PostgreSQL, and Prisma. The application features a minimalistic beige/black aesthetic, strict server-side quantity and price conversions, and role-based access control for Admins, Sellers, and Buyers.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 💻 Tech Stack & Architecture
+
+- **Core Framework**: Next.js 16.2 (App Router, Turbopack)
+- **Database**: Neon Serverless PostgreSQL (hosted in ap-southeast-1)
+- **ORM**: Prisma Client v7.8.0
+- **Database Client Adapter**: `@prisma/adapter-neon` with WebSockets (`ws`)
+- **Styling**: Tailwind CSS & Vanilla CSS (Outfit Font design system)
+- **Authentication**: JWT Session Signatures (`jose`) and PBKDF2 Password Hashing (via Node.js `crypto`)
+- **Deployment**: Vercel
+
+### High-Level System Design
+
+```mermaid
+graph TD
+    Client[Web Browser Client] <--> |Cookies / Authorization Headers| Proxy[Next.js Proxy Middleware]
+    Proxy <--> RouteHandlers[API Route Handlers / Pages]
+    RouteHandlers <--> |Prisma ORM WebSocket Client| Neon[Neon Serverless PostgreSQL]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Routing Security**: All `/admin`, `/seller`, and `/buyer` pages are guarded by Next.js Proxy middleware. Cookies and Bearer tokens are decoded on the edge using `jose`.
+2. **Server-Side Math Enforcement**: The database holds all stocks in their base units (e.g. Grams, Milliliters, Items). Price math and inventory deductions are executed atomically inside Prisma Transactions.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🛢️ Database Schema & Data Types
 
-## Learn More
+The Neon database schema leverages PostgreSQL's high-precision `Decimal` type to prevent float rounding errors:
 
-To learn more about Next.js, take a look at the following resources:
+### Key Tables & Field Definitions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```mermaid
+erDiagram
+    User ||--o{ Order : places
+    User ||--o{ Product : lists
+    Product ||--o{ OrderItem : details
+    Order ||--o{ OrderItem : contains
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+#### `User` Model
+- `id` (`String / CUID`): Primary key.
+- `name` (`String`): User's display name.
+- `email` (`String`): Unique email.
+- `password` (`String`): PBKDF2 hash.
+- `role` (`Role`): Enum (`ADMIN`, `SELLER`, `BUYER`).
 
-## Deploy on Vercel
+#### `Product` Model
+- `id` (`String / CUID`): Primary key.
+- `name` (`String`), `sku` (`String / Unique`), `description` (`String / Optional`).
+- `baseUnit` (`Unit`): Enum (`GRAM`, `MILLILITER`, `ITEM`).
+- `stockQuantity` (`Decimal(20, 8)`): Available inventory count scaled to base unit.
+- `basePrice` (`Decimal(20, 8)`): Stored unit rate per base unit.
+- `sellerId` (`String?`): Optional foreign key to `User(id)` representing listing Seller.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+#### `Order` Model
+- `id` (`String / CUID`): Primary key.
+- `userId` (`String`): Foreign key to `User(id)` (Buyer placing the quotation).
+- `totalAmount` (`Decimal(20, 8)`): Calculated order total in INR.
+- `status` (`OrderStatus`): Enum (`PENDING`, `APPROVED`, `REJECTED`, `COMPLETED`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+#### `OrderItem` Model
+- `id` (`String / CUID`): Primary key.
+- `orderId` (`String`), `productId` (`String`): Foreign keys.
+- `orderedQuantity` (`Decimal(20, 8)`): Quantity requested by the buyer.
+- `orderedUnit` (`Unit`): Display unit of selection (`GRAM`, `KILOGRAM`, `MILLILITER`, `LITER`, `ITEM`).
+- `convertedQuantity` (`Decimal(20, 8)`): Stored base unit equivalent.
+- `pricePerUnit` (`Decimal(20, 8)`): Unit rate in ordered unit.
+- `subtotal` (`Decimal(20, 8)`): Calculated cost in INR.
+
+---
+
+## 📏 Unit Storage & Conversion Strategy
+
+To preserve consistency, all inventory metrics are stored in their smallest dimensions:
+
+| Dimension | User display unit | Stored base unit | Conversion Factor |
+| :--- | :--- | :--- | :--- |
+| **Weight** | Grams (g) | **GRAM (g)** | `1` |
+| **Weight** | Kilograms (kg) | **GRAM (g)** | `1000` |
+| **Volume** | Milliliters (mL) | **MILLILITER (mL)** | `1` |
+| **Volume** | Liters (L) | **MILLILITER (mL)** | `1000` |
+| **Count** | Items | **ITEM** | `1` |
+
+### Math Logic & Scaling Rules
+
+- **Client Input**: When a seller enters a product (e.g., `10 kg` at `₹450 / kg`), the server converts:
+  - Base Stock: `10 kg * 1000 = 10,000 g`
+  - Price per base unit: `₹450 / 1000 = ₹0.45 / g`
+- **Quotation Calculations**: When a buyer requests `5 kg` of a product stored in grams:
+  - Converted Qty: `5 * 1000 = 5000 g`
+  - Price per ordered unit (kg): `Base Price (₹0.45) * 1000 = ₹450`
+  - Subtotal: `5 * ₹450 = ₹2250`
+- **Verification Rule**: The frontend displays real-time calculations, but **no client-side math is trusted**. The server queries the database, converts quantities, checks stock bounds, and computes subtotals during atomic transaction checkout.
+
+---
+
+## ⚙️ Setup & Installation
+
+### Prerequisite Environment Variables
+Create a `.env` file in the project root:
+```env
+DATABASE_URL="postgresql://neondb_owner:npg_SpR9zweB7lPH@ep-round-poetry-aodv5hco.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+JWT_SECRET="aasa-med-super-secret-development-key-12345"
+```
+*(For production transactions, the direct Neon endpoint without `-pooler` is configured in `DATABASE_URL` to support Prisma interactive transactions.)*
+
+### Run Locally
+1. Clone the project.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Generate Prisma client:
+   ```bash
+   npx prisma generate
+   ```
+4. Run the Next.js development server:
+   ```bash
+   npm run dev
+   ```
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 🚀 Vercel Deployment
+
+The application is fully pre-configured for Vercel deployment:
+1. Connect the GitHub repository to your Vercel Dashboard.
+2. Configure **Environment Variables** in Vercel project settings:
+   - Add `DATABASE_URL` and `JWT_SECRET`.
+3. Set the build commands:
+   - Build Command: `npm run build`
+   - Install Command: `npm install`
+4. Deploy the project. The build pipeline will automatically generate the Prisma client before bundling Next.js routes.
+
+---
+
+## 🔐 Test Login Credentials
+
+Use the following pre-created test accounts to evaluate the application flows:
+
+| Role | Email | Password | Panel URL | Capabilities |
+| :--- | :--- | :--- | :--- | :--- |
+| **Admin** | `admin@asamed.com` | `admin123` | `/admin` | Complete controls (Add/Remove users, delete catalog, approve/reject orders, simulate checkout). |
+| **Seller 1** | `seller1@asamed.com` | `seller123` | `/seller` | List chemicals, manage stock, view and action orders *only for their products*. |
+| **Seller 2** | `seller2@asamed.com` | `seller123` | `/seller` | Isolated merchant dashboard. Cannot see or manage Seller 1's products or orders. |
+| **Buyer** | `buyer@asamed.com` | `buyer123` | `/buyer` | Search chemical catalog, select display units, add to cart, submit quotations, track status. |
+
+---
+
+## 🔍 Features Checklist & Implementation Audit
+
+| Feature Requirement | Status | Verification Details |
+| :--- | :---: | :--- |
+| **Role-based Authentication** |  Verified | Secure HTTP-only cookies, jwt session check, proxy.ts router filters. |
+| **INR Display Standards** |  Verified | All product listings, drawers, and request audit sheets formatted in HSL/Beige premium styled INR. |
+| **High Decimal Precision** |  Verified | Prisma `Decimal` maps to PostgreSQL `numeric(20,8)` to prevent float loss. |
+| **Flexible Conversion Units** |  Verified | Supports Grams, Kilograms, Milliliters, Liters, Items on catalog browses. |
+| **Server-Side Math Enforcement** |  Verified | Price calculations and conversion bounds verified exclusively server-side during API orders. |
+| **Atomic Deductions** |  Verified | Stock is deducted inside a `prisma.$transaction` block to prevent race conditions. |
+| **Stock Refund on Reject** |  Verified | Changing order status to `REJECTED` automatically refunds stock base quantity. |
+| **Seller Isolation** |  Verified | Sellers only see and edit their own products, and only manage quotation items belonging to them. |
+| **Admin Control Center** |  Verified | Global user management (add/remove), catalog listing & deletion, order actions, and checkout simulation. |
