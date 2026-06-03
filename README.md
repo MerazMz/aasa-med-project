@@ -194,3 +194,6 @@ Use the following pre-created test accounts to evaluate the application flows:
 | **Stock Refund on Reject** |  Verified | Changing order status to `REJECTED` automatically refunds stock base quantity. |
 | **Seller Isolation** |  Verified | Sellers only see and edit their own products, and only manage quotation items belonging to them. |
 | **Admin Control Center** |  Verified | Global user management (add/remove), catalog listing & deletion, order actions, and checkout simulation. |
+
+
+DONE-DONE
