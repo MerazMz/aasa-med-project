@@ -36,10 +36,53 @@ The Neon database schema leverages PostgreSQL's high-precision `Decimal` type to
 
 ```mermaid
 erDiagram
-    User ||--o{ Order : places
-    User ||--o{ Product : lists
-    Product ||--o{ OrderItem : details
-    Order ||--o{ OrderItem : contains
+    User {
+        String   id          PK "cuid()"
+        String   name
+        String   email       UK
+        String   password    "PBKDF2 hash"
+        Role     role        "ADMIN | SELLER | BUYER"
+        DateTime createdAt
+        DateTime updatedAt
+    }
+
+    Product {
+        String   id            PK "cuid()"
+        String   name
+        String   sku           UK
+        String   description   "optional"
+        Unit     baseUnit      "GRAM | MILLILITER | ITEM"
+        Decimal  stockQuantity "Decimal(38,16)"
+        Decimal  basePrice     "Decimal(38,16)"
+        String   sellerId      FK "nullable → User.id"
+        DateTime createdAt
+        DateTime updatedAt
+    }
+
+    Order {
+        String      id          PK "cuid()"
+        String      userId      FK "→ User.id"
+        Decimal     totalAmount "Decimal(38,16) INR"
+        OrderStatus status      "PENDING | APPROVED | REJECTED | COMPLETED"
+        DateTime    createdAt
+        DateTime    updatedAt
+    }
+
+    OrderItem {
+        String  id                PK "cuid()"
+        String  orderId           FK "→ Order.id"
+        String  productId         FK "→ Product.id"
+        Decimal orderedQuantity   "Decimal(38,16)"
+        Unit    orderedUnit       "GRAM | KILOGRAM | MILLILITER | LITER | ITEM"
+        Decimal convertedQuantity "Decimal(38,16) base unit"
+        Decimal pricePerUnit      "Decimal(38,16) INR"
+        Decimal subtotal          "Decimal(38,16) INR"
+    }
+
+    User ||--o{ Order      : "places (as buyer)"
+    User ||--o{ Product    : "lists (as seller)"
+    Order ||--|{ OrderItem  : "contains"
+    Product ||--o{ OrderItem : "referenced in"
 ```
 
 #### `User` Model
@@ -53,24 +96,24 @@ erDiagram
 - `id` (`String / CUID`): Primary key.
 - `name` (`String`), `sku` (`String / Unique`), `description` (`String / Optional`).
 - `baseUnit` (`Unit`): Enum (`GRAM`, `MILLILITER`, `ITEM`).
-- `stockQuantity` (`Decimal(20, 8)`): Available inventory count scaled to base unit.
-- `basePrice` (`Decimal(20, 8)`): Stored unit rate per base unit.
+- `stockQuantity` (`Decimal(38, 16)`): Available inventory count scaled to base unit.
+- `basePrice` (`Decimal(38, 16)`): Stored unit rate per base unit.
 - `sellerId` (`String?`): Optional foreign key to `User(id)` representing listing Seller.
 
 #### `Order` Model
 - `id` (`String / CUID`): Primary key.
 - `userId` (`String`): Foreign key to `User(id)` (Buyer placing the quotation).
-- `totalAmount` (`Decimal(20, 8)`): Calculated order total in INR.
+- `totalAmount` (`Decimal(38, 16)`): Calculated order total in INR.
 - `status` (`OrderStatus`): Enum (`PENDING`, `APPROVED`, `REJECTED`, `COMPLETED`).
 
 #### `OrderItem` Model
 - `id` (`String / CUID`): Primary key.
 - `orderId` (`String`), `productId` (`String`): Foreign keys.
-- `orderedQuantity` (`Decimal(20, 8)`): Quantity requested by the buyer.
+- `orderedQuantity` (`Decimal(38, 16)`): Quantity requested by the buyer.
 - `orderedUnit` (`Unit`): Display unit of selection (`GRAM`, `KILOGRAM`, `MILLILITER`, `LITER`, `ITEM`).
-- `convertedQuantity` (`Decimal(20, 8)`): Stored base unit equivalent.
-- `pricePerUnit` (`Decimal(20, 8)`): Unit rate in ordered unit.
-- `subtotal` (`Decimal(20, 8)`): Calculated cost in INR.
+- `convertedQuantity` (`Decimal(38, 16)`): Stored base unit equivalent.
+- `pricePerUnit` (`Decimal(38, 16)`): Unit rate in ordered unit.
+- `subtotal` (`Decimal(38, 16)`): Calculated cost in INR.
 
 ---
 
@@ -187,7 +230,7 @@ Use the following pre-created test accounts to evaluate the application flows:
 | :--- | :---: | :--- |
 | **Role-based Authentication** |  Verified | Secure HTTP-only cookies, jwt session check, proxy.ts router filters. |
 | **INR Display Standards** |  Verified | All product listings, drawers, and request audit sheets formatted in HSL/Beige premium styled INR. |
-| **High Decimal Precision** |  Verified | Prisma `Decimal` maps to PostgreSQL `numeric(20,8)` to prevent float loss. |
+| **High Decimal Precision** |  Verified | Prisma `Decimal` maps to PostgreSQL `numeric(38,16)` to prevent float loss. |
 | **Flexible Conversion Units** |  Verified | Supports Grams, Kilograms, Milliliters, Liters, Items on catalog browses. |
 | **Server-Side Math Enforcement** |  Verified | Price calculations and conversion bounds verified exclusively server-side during API orders. |
 | **Atomic Deductions** |  Verified | Stock is deducted inside a `prisma.$transaction` block to prevent race conditions. |
@@ -195,5 +238,59 @@ Use the following pre-created test accounts to evaluate the application flows:
 | **Seller Isolation** |  Verified | Sellers only see and edit their own products, and only manage quotation items belonging to them. |
 | **Admin Control Center** |  Verified | Global user management (add/remove), catalog listing & deletion, order actions, and checkout simulation. |
 
+
+---
+
+## 📡 API Reference
+
+All API endpoints are served from the base URL. Authentication uses HTTP-only cookies (set after login) or an `Authorization: Bearer <token>` header.
+
+### 🔐 Authentication — `/api/auth`
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Public | Register a new user (`BUYER` or `SELLER`) |
+| `POST` | `/api/auth/login` | Public | Login and receive a JWT session token |
+| `GET` | `/api/auth/me` | Authenticated | Get the currently logged-in user's profile |
+| `POST` | `/api/auth/logout` | Authenticated | Clear the session cookie |
+
+---
+
+### 🧪 Products — `/api/products`
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/products` | Authenticated | Browse / search the product catalog |
+| `GET` | `/api/products?search=<query>` | Authenticated | Search products by name or SKU |
+| `POST` | `/api/products` | Seller, Admin | List a new product with server-side unit conversion |
+| `DELETE` | `/api/products/:id` | Seller (own), Admin | Remove a product from the catalog |
+
+---
+
+### 📦 Orders / Quotations — `/api/orders`
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/orders` | Authenticated | Fetch orders (buyers see own; sellers/admins see all) |
+| `POST` | `/api/orders` | Buyer | Submit a new quotation with cart items |
+| `PATCH` | `/api/orders/:id` | Seller, Admin | Update order status (`PENDING`, `APPROVED`, `REJECTED`, `COMPLETED`) |
+
+---
+
+### 🛡️ Admin — `/api/admin`
+
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/users` | Admin | List all registered users |
+| `POST` | `/api/admin/users` | Admin | Create a user with any role (`ADMIN`, `SELLER`, `BUYER`) |
+| `DELETE` | `/api/admin/users/:id` | Admin | Delete a user and all their associated data |
+
+> Full request/response schemas are documented in the [`docs/`](./docs/) folder:
+> - [`auth_api_docs.md`](./docs/auth_api_docs.md)
+> - [`products_api_docs.md`](./docs/products_api_docs.md)
+> - [`orders_api_docs.md`](./docs/orders_api_docs.md)
+> - [`admin_api_docs.md`](./docs/admin_api_docs.md)
+
+---
 
 DONE-DONE
