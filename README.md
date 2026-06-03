@@ -104,7 +104,7 @@ To preserve consistency, all inventory metrics are stored in their smallest dime
 ### Prerequisite Environment Variables
 Create a `.env` file in the project root:
 ```env
-DATABASE_URL="postgresql://neondb_owner:npg_SpR9zweB7lPH@ep-round-poetry-aodv5hco.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL="your-neon-db-url"
 JWT_SECRET="aasa-med-super-secret-development-key-12345"
 ```
 *(For production transactions, the direct Neon endpoint without `-pooler` is configured in `DATABASE_URL` to support Prisma interactive transactions.)*
