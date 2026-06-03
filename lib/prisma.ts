@@ -1,6 +1,6 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 
 neonConfig.webSocketConstructor = ws;
@@ -16,6 +16,7 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = undefined;
 }
 
+// Create a connection pool config from the serverless driver
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
