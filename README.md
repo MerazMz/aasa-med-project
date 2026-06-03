@@ -174,10 +174,10 @@ Use the following pre-created test accounts to evaluate the application flows:
 
 | Role | Email | Password | Panel URL | Capabilities |
 | :--- | :--- | :--- | :--- | :--- |
-| **Admin** | `admin@asamed.com` | `admin123` | `/admin` | Complete controls (Add/Remove users, delete catalog, approve/reject orders, simulate checkout). |
-| **Seller 1** | `seller1@asamed.com` | `seller123` | `/seller` | List chemicals, manage stock, view and action orders *only for their products*. |
-| **Seller 2** | `seller2@asamed.com` | `seller123` | `/seller` | Isolated merchant dashboard. Cannot see or manage Seller 1's products or orders. |
-| **Buyer** | `buyer@asamed.com` | `buyer123` | `/buyer` | Search chemical catalog, select display units, add to cart, submit quotations, track status. |
+| **Admin** | `admin@gmail.com` | `123123` | `/admin` | Complete controls (Add/Remove users, delete catalog, approve/reject orders, simulate checkout). |
+| **Seller 1** | `seller1@gmail.com` | `123123` | `/seller` | List chemicals, manage stock, view and action orders *only for their products*. |
+| **Seller 2** | `seller2@gmail.com` | `123123` | `/seller` | Isolated merchant dashboard. Cannot see or manage Seller 1's products or orders. |
+| **Buyer** | `buyer1@gmail.com` | `123123` | `/buyer` | Search chemical catalog, select display units, add to cart, submit quotations, track status. |
 
 ---
 
